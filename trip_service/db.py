@@ -136,6 +136,19 @@ async def update_trip(trip_id: UUID, **fields: Any) -> dict:
     return dict(row)
 
 
+async def get_idempotency_key(key: str) -> dict | None:
+    row = await get_pool().fetchrow(
+        """
+        SELECT *
+        FROM idempotency_keys
+        WHERE key = $1
+        """,
+        key,
+    )
+
+    return dict(row) if row else None
+
+
 async def get_trip(trip_id: UUID) -> dict | None:
     row = await get_pool().fetchrow("SELECT * FROM trips WHERE id = $1", trip_id)
     return dict(row) if row else None

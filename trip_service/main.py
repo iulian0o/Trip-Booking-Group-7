@@ -70,9 +70,23 @@ async def create_trip(
     ).hexdigest()
 
     claimed_key = await db.claim_idempotency_key(
-    key=idempotency_key,
-    request_hash=request_hash,
+        key=idempotency_key,
+        request_hash=request_hash,
     )
+
+    if claimed_key is None:
+        existing_key = await db.get_idempotency_key(idempotency_key)
+
+        if existing_key["request_hash"] != request_hash:
+            raise HTTPException(
+                status_code=409,
+                detail="Idempotency key was already used for a different request",
+            )
+
+        raise HTTPException(
+            status_code=409,
+            detail="This request is already being processed",
+        )
 
     trip = await db.create_trip(
         user_id=request.user_id,
