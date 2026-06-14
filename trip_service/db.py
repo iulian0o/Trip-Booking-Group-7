@@ -104,6 +104,25 @@ async def create_trip(
     return dict(row)
 
 
+async def claim_idempotency_key(
+    *,
+    key: str,
+    request_hash: str,
+) -> dict | None:
+    row = await get_pool().fetchrow(
+        """
+        INSERT INTO idempotency_keys (key, request_hash, status)
+        VALUES ($1, $2, 'PROCESSING')
+        ON CONFLICT (key) DO NOTHING
+        RETURNING *
+        """,
+        key,
+        request_hash,
+    )
+
+    return dict(row) if row else None
+
+
 async def update_trip(trip_id: UUID, **fields: Any) -> dict:
     if not fields:
         row = await get_pool().fetchrow("SELECT * FROM trips WHERE id = $1", trip_id)

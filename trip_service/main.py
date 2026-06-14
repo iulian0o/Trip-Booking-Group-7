@@ -69,6 +69,11 @@ async def create_trip(
         request_json.encode("utf-8")
     ).hexdigest()
 
+    claimed_key = await db.claim_idempotency_key(
+    key=idempotency_key,
+    request_hash=request_hash,
+    )
+
     trip = await db.create_trip(
         user_id=request.user_id,
         traveler_name=request.traveler_name,
