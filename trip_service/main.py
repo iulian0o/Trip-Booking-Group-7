@@ -97,6 +97,11 @@ async def create_trip(
     )
     trip_id = trip["id"]
 
+    await db.attach_trip_to_idempotency_key(
+        key=idempotency_key,
+        trip_id=trip_id,
+)
+
     try:
         # INTENTIONAL NAIVE DESIGN:
         # This is a plain sequence of remote calls. There is no saga state

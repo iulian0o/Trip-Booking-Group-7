@@ -154,6 +154,23 @@ async def get_trip(trip_id: UUID) -> dict | None:
     return dict(row) if row else None
 
 
+async def attach_trip_to_idempotency_key(
+    *,
+    key: str,
+    trip_id: UUID,
+) -> None:
+    await get_pool().execute(
+        """
+        UPDATE idempotency_keys
+        SET trip_id = $2,
+            updated_at = now()
+        WHERE key = $1
+        """,
+        key,
+        trip_id,
+    )
+
+
 async def state() -> dict[str, list[dict]]:
     rows = await get_pool().fetch("SELECT * FROM trips ORDER BY created_at, id")
     return {"trips": [dict(row) for row in rows]}
