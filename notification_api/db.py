@@ -54,6 +54,20 @@ async def init_db() -> None:
         """
     )
 
+    # Unique constraint
+    await get_pool().execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname = 'notifications_event_id_key'
+            ) THEN
+                ALTER TABLE notifications ADD CONSTAINT notifications_event_id_key UNIQUE (event_id)
+            END IF;
+        END$$;
+        """
+    )
 
 async def reset_db() -> None:
     await get_pool().execute("DELETE FROM notifications")
@@ -73,6 +87,7 @@ async def insert_notification(
         """
         INSERT INTO notifications (id, event_id, trip_id, user_id, notification_type, payload)
         VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+        ON CONFLICT (event_id) DO NOTHING
         RETURNING *
         """,
         uuid4(),
@@ -82,7 +97,7 @@ async def insert_notification(
         notification_type,
         json.dumps(payload),
     )
-    return notification_to_dict(row)
+    return notification_to_dict(row) if row else None
 
 
 async def state() -> dict[str, list[dict]]:
