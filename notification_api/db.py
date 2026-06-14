@@ -57,15 +57,8 @@ async def init_db() -> None:
     # Unique constraint
     await get_pool().execute(
         """
-        DO $$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_constraint
-                WHERE conname = 'notifications_event_id_key'
-            ) THEN
-                ALTER TABLE notifications ADD CONSTAINT notifications_event_id_key UNIQUE (event_id)
-            END IF;
-        END$$;
+        CREATE UNIQUE INDEX IF NOT EXISTS notifications_event_id_key
+        ON notifications (event_id)
         """
     )
 
