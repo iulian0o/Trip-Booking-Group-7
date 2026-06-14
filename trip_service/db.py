@@ -175,3 +175,19 @@ async def state() -> dict[str, list[dict]]:
     rows = await get_pool().fetch("SELECT * FROM trips ORDER BY created_at, id")
     return {"trips": [dict(row) for row in rows]}
 
+
+async def update_idempotency_status(
+    *,
+    key: str,
+    status: str,
+) -> None:
+    await get_pool().execute(
+        """
+        UPDATE idempotency_keys
+        SET status = $2,
+            updated_at = now()
+        WHERE key = $1
+        """,
+        key,
+        status,
+    )

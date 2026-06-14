@@ -77,11 +77,28 @@ async def create_trip(
     if claimed_key is None:
         existing_key = await db.get_idempotency_key(idempotency_key)
 
+        if existing_key is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Idempotency record could not be loaded",
+            )
+
         if existing_key["request_hash"] != request_hash:
             raise HTTPException(
                 status_code=409,
                 detail="Idempotency key was already used for a different request",
             )
+
+        if existing_key["status"] == "COMPLETED":
+            existing_trip = await db.get_trip(existing_key["trip_id"])
+
+            if existing_trip is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Trip linked to idempotency key was not found",
+                )
+
+            return existing_trip
 
         raise HTTPException(
             status_code=409,
@@ -157,6 +174,11 @@ async def create_trip(
         # The trip is already confirmed. There is no transactional outbox to
         # guarantee that the notification event will eventually be published.
         logging.exception("Failed to publish trip.confirmed event")
+
+    await db.update_idempotency_status(
+    key=idempotency_key,
+    status="COMPLETED",
+    )
 
     return trip
 
