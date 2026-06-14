@@ -64,9 +64,10 @@ def wait_for_notifications(trip_id: str, minimum: int = 1, timeout_seconds: floa
         return client.get(f"{NOTIFICATION_URL}/notifications/{trip_id}").json()
 
 
-def create_trip(payload: dict[str, Any]) -> httpx.Response:
+def create_trip(payload: dict[str, Any], idempotency_key: str | None = None) -> httpx.Response:
+    headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
     with httpx.Client(timeout=15) as client:
-        return client.post(f"{TRIP_URL}/trips", json=payload)
+        return client.post(f"{TRIP_URL}/trips", json=payload, headers=headers)
 
 
 def base_trip_payload(**simulate: Any) -> dict[str, Any]:

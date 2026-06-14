@@ -4,12 +4,14 @@ import logging
 from contextlib import asynccontextmanager
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 
 from shared.logging import configure_logging
 from trip_service import clients, db, events
 from trip_service.pricing import calculate_amount_cents
 from trip_service.schemas import CreateTripRequest
+
+import hashlib
 
 SERVICE_NAME = "trip-service"
 
@@ -56,7 +58,17 @@ async def get_trip(trip_id: UUID) -> dict:
 
 
 @app.post("/trips")
-async def create_trip(request: CreateTripRequest) -> dict:
+async def create_trip(
+    request: CreateTripRequest,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+) -> dict:
+    
+    request_json = request.model_dump_json(exclude={"simulate"})
+
+    request_hash = hashlib.sha256(
+        request_json.encode("utf-8")
+    ).hexdigest()
+
     trip = await db.create_trip(
         user_id=request.user_id,
         traveler_name=request.traveler_name,

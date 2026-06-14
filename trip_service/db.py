@@ -60,8 +60,22 @@ async def init_db() -> None:
         """
     )
 
+    await get_pool().execute(
+        """
+        CREATE TABLE IF NOT EXISTS idempotency_keys (
+            key TEXT PRIMARY KEY,
+            request_hash TEXT NOT NULL,
+            trip_id UUID REFERENCES trips(id),
+            status TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
+    )
+
 
 async def reset_db() -> None:
+    await get_pool().execute("DELETE FROM idempotency_keys")
     await get_pool().execute("DELETE FROM trips")
 
 
