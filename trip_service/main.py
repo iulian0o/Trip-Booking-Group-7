@@ -55,6 +55,31 @@ async def get_trip(trip_id: UUID) -> dict:
         raise HTTPException(status_code=404, detail="Trip not found")
     return trip
 
+# Compensation path: undo completed steps in reverse order. 
+# When sommebody books a flight and then a hotel, the hotel gets cancel first and after the flight.
+async def _compansate(
+    flight_booking_id: UUID | None,
+    hotel_reservation_id: UUID | None,
+) -> list[str]:
+    log: list[str] = []
+
+    # Cancel hotel reservation if it was created
+    if hotel_reservation_id is not None:
+        try:
+            await clients.cancel_hotel_reservation(str(hotel_reservation_id))
+            log.append(f"hotel reservation {hotel_reservation_id} cancelled")
+        except Exception as exc:
+            log.append(f"hotel cancellation FAILED: {exc}") 
+
+    # Cancel flight reservation if it was created
+    if flight_booking_id is not None: 
+        try:
+            await clients.cancel_flight_booking(str(flight_booking_id))
+            log.append(f"flight booking {flight_booking_id} cancelled")
+        except Exception as exc:
+            log.append(f"flight cancellation FAILED: {exc}")
+    
+    return log
 
 @app.post("/trips")
 async def create_trip(
@@ -129,6 +154,9 @@ async def create_trip(
 
     trip_id = trip["id"]
 
+    flight_booking_id: UUID | None = None
+    hotel_reservation_id: UUID | None = None
+
     try:
         flight_booking = await clients.book_flight(
             flight_id=request.flight_id,
@@ -136,6 +164,8 @@ async def create_trip(
             traveler_name=request.traveler_name,
             delay_after_check_ms=request.simulate.flight_delay_after_check_ms,
         )
+
+        flight_booking_id = UUID(flight_booking["id"])
         trip = await db.update_trip(trip_id, flight_booking_id=UUID(flight_booking["id"]))
 
         hotel_reservation = await clients.reserve_hotel(
@@ -146,6 +176,8 @@ async def create_trip(
             delay_after_check_ms=request.simulate.hotel_delay_after_check_ms,
             force_fail=request.simulate.hotel_force_fail,
         )
+
+        hotel_reservation_id = UUID(hotel_reservation["id"])
         trip = await db.update_trip(trip_id, hotel_reservation_id=UUID(hotel_reservation["id"]))
 
         flight = await clients.get_flight(request.flight_id)
@@ -172,6 +204,16 @@ async def create_trip(
         )
 
     except Exception as exc:
+        comp_log = await _compansate(flight_booking_id, hotel_reservation_id)
+
+        original_error = str(exc)
+        comp_summary = "; ".join(comp_log) if comp_log else "nothing to compansate"
+        full_error = f"{original_error} | compensation: {comp_summary}"
+
+        logging.error("Trip %s failed. %s", trip_id, full_error)
+
+        failed = await db.update_trip(trip_id, status="FAILED", error_message=str(exc))
+        raise HTTPException(status_code=502, detail={"trip_id": str(trip_id), "error": failed["error_message"]})
         failed = await db.update_trip(
             trip_id,
             status="FAILED",
