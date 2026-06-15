@@ -35,8 +35,8 @@ def pretty(data: Any) -> str:
     return json.dumps(data, indent=2, sort_keys=True, default=str)
 
 
-def reset_all() -> None:
-    asyncio.run(purge_notification_queue())
+async def reset_all() -> None:
+    await purge_notification_queue()
     with httpx.Client(timeout=10) as client:
         for _, base_url in SERVICES:
             client.post(f"{base_url}/admin/reset").raise_for_status()
