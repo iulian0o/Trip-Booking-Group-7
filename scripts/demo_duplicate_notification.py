@@ -8,6 +8,10 @@ def main() -> None:
 
     payload = base_trip_payload(publish_event_twice=True)
     response = create_trip(payload)
+    response = create_trip(
+        base_trip_payload(publish_event_twice=True),
+        idempotency_key="demo-duplicate-notification-001"
+    )
     response.raise_for_status()
     trip = response.json()
     trip_id = trip["id"]

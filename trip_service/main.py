@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from contextlib import asynccontextmanager
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 
 from shared.logging import configure_logging
 from trip_service import clients, db, events
@@ -81,23 +82,82 @@ async def _compansate(
     return log
 
 @app.post("/trips")
-async def create_trip(request: CreateTripRequest) -> dict:
-    trip = await db.create_trip(
+async def create_trip(
+    request: CreateTripRequest,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+) -> dict:
+    
+    request_json = request.model_dump_json(exclude={"simulate"})
+
+    request_hash = hashlib.sha256(
+        request_json.encode("utf-8")
+    ).hexdigest()
+
+    trip = await db.claim_key_and_create_trip(
+        key=idempotency_key,
+        request_hash=request_hash,
         user_id=request.user_id,
         traveler_name=request.traveler_name,
         flight_id=request.flight_id,
         hotel_id=request.hotel_id,
         nights=request.nights,
     )
+
+    if trip is None:
+        existing_key = await db.get_idempotency_key(idempotency_key)
+
+        if existing_key is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Idempotency record could not be loaded",
+            )
+
+        if existing_key["request_hash"] != request_hash:
+            raise HTTPException(
+                status_code=409,
+                detail="Idempotency key was already used for a different request",
+            )
+
+        if existing_key["status"] == "COMPLETED":
+            existing_trip = await db.get_trip(existing_key["trip_id"])
+
+            if existing_trip is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Trip linked to idempotency key was not found",
+                )
+
+            return existing_trip
+        
+        if existing_key["status"] == "FAILED":
+            existing_trip = await db.get_trip(existing_key["trip_id"])
+
+            if existing_trip is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Trip linked to idempotency key was not found",
+                )
+
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "The original request failed and will not be retried",
+                    "trip_id": str(existing_trip["id"]),
+                    "error": existing_trip["error_message"],
+                },
+            )
+
+        raise HTTPException(
+            status_code=409,
+            detail="This request is already being processed",
+        )
+
     trip_id = trip["id"]
 
     flight_booking_id: UUID | None = None
     hotel_reservation_id: UUID | None = None
 
     try:
-        # INTENTIONAL NAIVE DESIGN:
-        # This is a plain sequence of remote calls. There is no saga state
-        # machine, compensation, TCC, 2PC, retry policy, or idempotency key.
         flight_booking = await clients.book_flight(
             flight_id=request.flight_id,
             trip_id=str(trip_id),
@@ -142,6 +202,7 @@ async def create_trip(request: CreateTripRequest) -> dict:
             status="CONFIRMED",
             error_message=None,
         )
+
     except Exception as exc:
         comp_log = await _compansate(flight_booking_id, hotel_reservation_id)
 
@@ -153,6 +214,24 @@ async def create_trip(request: CreateTripRequest) -> dict:
 
         failed = await db.update_trip(trip_id, status="FAILED", error_message=str(exc))
         raise HTTPException(status_code=502, detail={"trip_id": str(trip_id), "error": failed["error_message"]})
+        failed = await db.update_trip(
+            trip_id,
+            status="FAILED",
+            error_message=str(exc),
+        )
+
+        await db.update_idempotency_status(
+            key=idempotency_key,
+            status="FAILED",
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "trip_id": str(trip_id),
+                "error": failed["error_message"],
+            },
+        )
 
     try:
         await events.publish_confirmation(trip, publish_twice=request.simulate.publish_event_twice)
@@ -162,5 +241,9 @@ async def create_trip(request: CreateTripRequest) -> dict:
         # guarantee that the notification event will eventually be published.
         logging.exception("Failed to publish trip.confirmed event")
 
-    return trip
+    await db.update_idempotency_status(
+        key=idempotency_key,
+        status="COMPLETED",
+    )
 
+    return trip

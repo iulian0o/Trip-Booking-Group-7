@@ -13,7 +13,8 @@ def main() -> None:
             "hotel_id": "HT-MANY-ROOMS",
             "nights": 2,
             "simulate": {},
-        }
+        },
+        idempotency_key="smoke-success-001",
     )
     response.raise_for_status()
     trip = response.json()
