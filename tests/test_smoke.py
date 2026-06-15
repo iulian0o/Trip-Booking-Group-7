@@ -48,6 +48,7 @@ def test_happy_path_trip_booking_succeeds_and_notifies() -> None:
     with httpx.Client(timeout=15) as client:
         response = client.post(
             f"{TRIP_URL}/trips",
+            headers={"Idempotency-Key": "test-smoke-001"},
             json={
                 "user_id": "user-1",
                 "traveler_name": "Ada Lovelace",
