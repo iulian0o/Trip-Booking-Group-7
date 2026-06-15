@@ -45,13 +45,13 @@ def wait_for_notifications(trip_id: str, minimum: int) -> list[dict]:
         return client.get(f"{NOTIFICATION_URL}/notifications/{trip_id}").json()
 
 
-def test_payment_failure_leaves_reserved_resources_in_baseline() -> None:
+def test_payment_failure_compensates_reserved_resources() -> None:
     reset_all()
     with httpx.Client(timeout=15) as client:
         response = client.post(
             f"{TRIP_URL}/trips",
             json=trip_payload(payment_force_decline=True),
-            headers={"Idempotency-Key": "test-payment-failure-leaves-reserved-resources-in-baseline"}
+            headers={"Idempotency-Key": "test-payment-failure-compensation"}
         )
         trips = client.get(f"{TRIP_URL}/trips").json()
         flight_state = client.get(f"{FLIGHT_URL}/debug/state").json()
@@ -60,21 +60,8 @@ def test_payment_failure_leaves_reserved_resources_in_baseline() -> None:
 
     assert response.status_code == 502
     assert trips[0]["status"] == "FAILED"
-    assert flight_state["flight_bookings"][0]["status"] == "CONFIRMED"
-    assert hotel_state["hotel_reservations"][0]["status"] == "CONFIRMED"
+    assert flight_state["flight_bookings"][0]["status"] == "CANCELLED"
+    assert hotel_state["hotel_reservations"][0]["status"] == "CANCELLED"
+    assert flight_state["flights"][0]["seats_available"] == 10
+    assert hotel_state["hotels"][0]["rooms_available"] == 10
     assert payment_state["payment_authorizations"][0]["status"] == "DECLINED"
-
-
-def test_duplicate_event_creates_duplicate_notifications_in_baseline() -> None:
-    reset_all()
-    with httpx.Client(timeout=15) as client:
-        response = client.post(
-            f"{TRIP_URL}/trips",
-            json=trip_payload(publish_event_twice=True),
-            headers={"Idempotency-Key": "test-duplicate-event-creates-duplicate-notifications-in-baseline"}
-        )
-
-    assert response.status_code == 200
-    notifications = wait_for_notifications(response.json()["id"], minimum=2)
-    assert len(notifications) == 2
-    assert notifications[0]["event_id"] == notifications[1]["event_id"]
