@@ -22,7 +22,7 @@ async def connect_with_retry() -> None:
         try:
             pool = await asyncpg.create_pool(database_url())
             return
-        except Exception as exc:  # pragma: no cover - startup race in Docker
+        except Exception as exc:
             last_error = exc
             await asyncio.sleep(1)
     raise RuntimeError("Could not connect to notification database") from last_error
@@ -53,6 +53,12 @@ async def init_db() -> None:
         )
         """
     )
+    await get_pool().execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS notifications_event_id_key
+        ON notifications (event_id)
+        """
+    )
 
 
 async def reset_db() -> None:
@@ -66,13 +72,12 @@ async def insert_notification(
     user_id: str,
     notification_type: str,
     payload: dict[str, Any],
-) -> dict:
-    # INTENTIONAL NAIVE DESIGN:
-    # event_id is not unique. Duplicate events create duplicate notification rows.
+) -> dict | None:
     row = await get_pool().fetchrow(
         """
         INSERT INTO notifications (id, event_id, trip_id, user_id, notification_type, payload)
         VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+        ON CONFLICT (event_id) DO NOTHING
         RETURNING *
         """,
         uuid4(),
@@ -82,7 +87,7 @@ async def insert_notification(
         notification_type,
         json.dumps(payload),
     )
-    return notification_to_dict(row)
+    return notification_to_dict(row) if row else None
 
 
 async def state() -> dict[str, list[dict]]:
