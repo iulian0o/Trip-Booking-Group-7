@@ -212,12 +212,10 @@ async def create_trip(
 
         logging.error("Trip %s failed. %s", trip_id, full_error)
 
-        failed = await db.update_trip(trip_id, status="FAILED", error_message=str(exc))
-        raise HTTPException(status_code=502, detail={"trip_id": str(trip_id), "error": failed["error_message"]})
         failed = await db.update_trip(
             trip_id,
             status="FAILED",
-            error_message=str(exc),
+            error_message=full_error,
         )
 
         await db.update_idempotency_status(

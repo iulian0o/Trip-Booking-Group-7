@@ -25,7 +25,7 @@ def main() -> None:
 
     # Trigger the failure scenario
     payload = base_trip_payload(payment_force_decline=True)
-    response = create_trip(payload)
+    response = create_trip(payload, idempotency_key="demo-compensation-001")
 
     print("Trip response (expected 502):")
     print(pretty(response.json()))

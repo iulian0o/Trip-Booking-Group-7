@@ -6,8 +6,6 @@ def main() -> None:
     print("\nDuplicate Message Handling Demo\n")
     reset_all()
 
-    payload = base_trip_payload(publish_event_twice=True)
-    response = create_trip(payload)
     response = create_trip(
         base_trip_payload(publish_event_twice=True),
         idempotency_key="demo-duplicate-notification-001"
@@ -35,6 +33,6 @@ def main() -> None:
         print(f"FAIL: {len(notifications)} notifications stored — deduplication is NOT working.")
         sys.exit(1)
 
+
 if __name__ == "__main__":
     main()
-

@@ -9,8 +9,7 @@ def main() -> None:
     )
 
     print("Payment failed after flight and hotel succeeded.")
-    print("The trip is FAILED, but resources remain reserved.")
-    print("This demonstrates the need for a saga, TCC, or another recovery mechanism.")
+    print("The trip is FAILED, and compensation cancels the reserved resources.")
     print("Trip response:")
     print(pretty(response.json()))
     print("State:")
