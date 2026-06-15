@@ -3,7 +3,10 @@ from common import base_trip_payload, create_trip, pretty, reset_all, wait_for_n
 
 def main() -> None:
     reset_all()
-    response = create_trip(base_trip_payload(publish_event_twice=True))
+    response = create_trip(
+        base_trip_payload(publish_event_twice=True),
+        idempotency_key="demo-duplicate-notification-001"
+    )
     response.raise_for_status()
     trip = response.json()
     notifications = wait_for_notifications(trip["id"], minimum=2, timeout_seconds=8)
