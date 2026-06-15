@@ -60,7 +60,7 @@ async def book_flight(flight_id: str, request: FlightBookingRequest) -> dict:
     pool = db.get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
-            flight = await conn.fetchrow("SELECT * FROM flights WHERE id = $1", flight_id)
+            flight = await conn.fetchrow("SELECT * FROM flights WHERE id = $1 FOR UPDATE", flight_id)
             if flight is None:
                 raise HTTPException(status_code=404, detail="Flight not found")
 

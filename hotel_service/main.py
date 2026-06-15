@@ -63,7 +63,7 @@ async def reserve_hotel(hotel_id: str, request: HotelReservationRequest) -> dict
     pool = db.get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
-            hotel = await conn.fetchrow("SELECT * FROM hotels WHERE id = $1", hotel_id)
+            hotel = await conn.fetchrow("SELECT * FROM hotels WHERE id = $1 FOR UPDATE", hotel_id)
             if hotel is None:
                 raise HTTPException(status_code=404, detail="Hotel not found")
 
