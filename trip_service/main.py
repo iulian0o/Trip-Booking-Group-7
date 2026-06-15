@@ -68,12 +68,17 @@ async def create_trip(
         request_json.encode("utf-8")
     ).hexdigest()
 
-    claimed_key = await db.claim_idempotency_key(
+    trip = await db.claim_key_and_create_trip(
         key=idempotency_key,
         request_hash=request_hash,
+        user_id=request.user_id,
+        traveler_name=request.traveler_name,
+        flight_id=request.flight_id,
+        hotel_id=request.hotel_id,
+        nights=request.nights,
     )
 
-    if claimed_key is None:
+    if trip is None:
         existing_key = await db.get_idempotency_key(idempotency_key)
 
         if existing_key is None:
@@ -122,19 +127,7 @@ async def create_trip(
             detail="This request is already being processed",
         )
 
-    trip = await db.create_trip(
-        user_id=request.user_id,
-        traveler_name=request.traveler_name,
-        flight_id=request.flight_id,
-        hotel_id=request.hotel_id,
-        nights=request.nights,
-    )
     trip_id = trip["id"]
-
-    await db.attach_trip_to_idempotency_key(
-        key=idempotency_key,
-        trip_id=trip_id,
-)
 
     try:
         flight_booking = await clients.book_flight(
@@ -212,4 +205,3 @@ async def create_trip(
     )
 
     return trip
-
