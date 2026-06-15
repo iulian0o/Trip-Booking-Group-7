@@ -126,4 +126,9 @@ Do not assume the starter app is correct. Its flaws are the point of the exercis
 
 | Concept | Category | Main files modified | How to test it |
 |---|---|---|---|
+| Database transactions | A1 | `flight_service/main.py`, `hotel_service/main.py`, `scripts/demo_transaction.py` | `docker compose run --rm tools python scripts/demo_transaction.py` |
+| Pessimistic locking (`SELECT FOR UPDATE`) | A2 | `flight_service/main.py`, `hotel_service/main.py`, `scripts/demo_pessimistic_locking.py` | `docker compose run --rm tools python scripts/demo_pessimistic_locking.py` |
+| Compensation path | B | `trip_service/main.py`, `trip_service/clients.py`, `scripts/demo_compensation.py` | `docker compose run --rm tools python scripts/demo_compensation.py` |
+| Duplicate message handling | B (Bonus) | `notification_api/db.py`, `notification_worker/worker.py`, `tests/test_duplicate_message_handling.py` | `docker compose run --rm tools pytest tests/test_duplicate_message_handling.py -v` |
 | Client request idempotency key | C | `trip_service/main.py`, `trip_service/db.py`, `tests/test_trip_idempotency.py` | `docker compose run --rm tools pytest tests/test_trip_idempotency.py -v` |
+
