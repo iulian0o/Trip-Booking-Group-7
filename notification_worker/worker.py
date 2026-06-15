@@ -18,13 +18,20 @@ CRASH_MARKER = Path("/tmp/notification_worker_crashed_once")
 async def handle_message(message) -> None:
     async with message.process(requeue=True):
         event = json.loads(message.body.decode("utf-8"))
-        await db.insert_notification(
+        event_id = UUID(event["event_id"])
+
+        result = await db.insert_notification(
             event_id=UUID(event["event_id"]),
             trip_id=UUID(event["trip_id"]),
             user_id=event["user_id"],
             notification_type=event["event_type"],
             payload=event,
         )
+
+        if result is None:
+            logging.info("Duplicate message detected and skipped: event_id=%s", event_id)
+        else:
+            logging.info("Notification stored for event_id=%s tip_id=%s", event_id, event["trip_id"])
 
         if os.getenv("CRASH_ONCE_AFTER_INSERT_BEFORE_ACK", "false").lower() == "true" and not CRASH_MARKER.exists():
             CRASH_MARKER.write_text("crashed\n", encoding="utf-8")

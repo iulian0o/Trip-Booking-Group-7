@@ -60,6 +60,13 @@ async def init_db() -> None:
         """
     )
 
+    # Unique constraint
+    await get_pool().execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS notifications_event_id_key
+        ON notifications (event_id)
+        """
+    )
 
 async def reset_db() -> None:
     await get_pool().execute("DELETE FROM notifications")

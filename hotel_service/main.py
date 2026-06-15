@@ -61,40 +61,38 @@ async def reserve_hotel(hotel_id: str, request: HotelReservationRequest) -> dict
         raise HTTPException(status_code=500, detail="Forced hotel failure")
 
     pool = db.get_pool()
-    hotel = await pool.fetchrow("SELECT * FROM hotels WHERE id = $1", hotel_id)
-    if hotel is None:
-        raise HTTPException(status_code=404, detail="Hotel not found")
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            hotel = await conn.fetchrow("SELECT * FROM hotels WHERE id = $1 FOR UPDATE", hotel_id)
+            if hotel is None:
+                raise HTTPException(status_code=404, detail="Hotel not found")
 
-    # INTENTIONAL NAIVE DESIGN:
-    # This check/update is not protected by a transaction or row lock.
-    # Several concurrent requests can pass this check before any decrement is visible.
-    if hotel["rooms_available"] < request.rooms:
-        raise HTTPException(status_code=409, detail="Not enough rooms available")
+            if hotel["rooms_available"] < request.rooms:
+                raise HTTPException(status_code=409, detail="Not enough rooms available")
 
-    await maybe_delay(request.delay_after_check_ms)
+            await maybe_delay(request.delay_after_check_ms)
 
-    await pool.execute(
-        "UPDATE hotels SET rooms_available = rooms_available - $1 WHERE id = $2",
-        request.rooms,
-        hotel_id,
-    )
-    reservation_id = uuid4()
-    reservation = await pool.fetchrow(
-        """
-        INSERT INTO hotel_reservations (id, trip_id, hotel_id, traveler_name, nights, rooms, status)
-        VALUES ($1, $2, $3, $4, $5, $6, 'CONFIRMED')
-        RETURNING *
-        """,
-        reservation_id,
-        request.trip_id,
-        hotel_id,
-        request.traveler_name,
-        request.nights,
-        request.rooms,
-    )
-    return dict(reservation)
-
-
+            await conn.execute(
+                "UPDATE hotels SET rooms_available = rooms_available - $1 WHERE id = $2",
+                request.rooms,
+                hotel_id,
+            )
+            reservation_id = uuid4()
+            reservation = await conn.fetchrow(
+                """
+                INSERT INTO hotel_reservations (id, trip_id, hotel_id, traveler_name, nights, rooms, status)
+                VALUES ($1, $2, $3, $4, $5, $6, 'CONFIRMED')
+                RETURNING *
+                """,
+                reservation_id,
+                request.trip_id,
+                hotel_id,
+                request.traveler_name,
+                request.nights,
+                request.rooms,
+            )
+            return dict(reservation)
+        
 @app.post("/hotel-reservations/{reservation_id}/cancel")
 async def cancel_reservation(reservation_id: UUID) -> dict:
     pool = db.get_pool()

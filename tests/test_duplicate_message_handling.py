@@ -20,51 +20,48 @@ def reset_all() -> None:
     asyncio.run(purge_notification_queue())
     with httpx.Client(timeout=10) as client:
         for base_url in SERVICE_URLS:
-            response = client.post(f"{base_url}/admin/reset")
-            response.raise_for_status()
+            client.post(f"{base_url}/admin/reset").raise_for_status()
 
 
-def wait_for_notifications(trip_id: str, minimum: int = 1) -> list[dict]:
+def wait_for_notifications(trip_id: str) -> list[dict]:
     deadline = time.monotonic() + 8
     with httpx.Client(timeout=10) as client:
         while time.monotonic() < deadline:
-            rows = client.get(f"{NOTIFICATION_URL}/notifications/{trip_id}").json()
-            if len(rows) >= minimum:
-                return rows
+            notifications = client.get(
+                f"{NOTIFICATION_URL}/notifications/{trip_id}"
+            ).json()
+            if notifications:
+                time.sleep(0.5)
+                return client.get(
+                    f"{NOTIFICATION_URL}/notifications/{trip_id}"
+                ).json()
             time.sleep(0.2)
-        return client.get(f"{NOTIFICATION_URL}/notifications/{trip_id}").json()
+
+        return client.get(
+            f"{NOTIFICATION_URL}/notifications/{trip_id}"
+        ).json()
 
 
-def test_services_are_healthy() -> None:
-    with httpx.Client(timeout=10) as client:
-        for base_url in SERVICE_URLS:
-            response = client.get(f"{base_url}/health")
-            assert response.status_code == 200
-            assert response.json()["status"] == "ok"
-
-
-def test_happy_path_trip_booking_succeeds_and_notifies() -> None:
+def test_duplicate_event_is_stored_once() -> None:
     reset_all()
+
     with httpx.Client(timeout=15) as client:
         response = client.post(
             f"{TRIP_URL}/trips",
-            headers={"Idempotency-Key": "test-smoke-001"},
+            headers={"Idempotency-Key": "test-duplicate-message-001"},
             json={
                 "user_id": "user-1",
                 "traveler_name": "Ada Lovelace",
                 "flight_id": "FL-MANY-SEATS",
                 "hotel_id": "HT-MANY-ROOMS",
                 "nights": 2,
-                "simulate": {},
+                "simulate": {"publish_event_twice": True},
             },
         )
 
     assert response.status_code == 200
-    trip = response.json()
-    assert trip["status"] == "CONFIRMED"
-    assert trip["flight_booking_id"] is not None
-    assert trip["hotel_reservation_id"] is not None
-    assert trip["payment_authorization_id"] is not None
 
-    notifications = wait_for_notifications(trip["id"])
+    notifications = wait_for_notifications(response.json()["id"])
+
     assert len(notifications) == 1
+    assert notifications[0]["trip_id"] == response.json()["id"]

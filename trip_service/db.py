@@ -60,34 +60,23 @@ async def init_db() -> None:
         """
     )
 
+    await get_pool().execute(
+        """
+        CREATE TABLE IF NOT EXISTS idempotency_keys (
+            key TEXT PRIMARY KEY,
+            request_hash TEXT NOT NULL,
+            trip_id UUID REFERENCES trips(id),
+            status TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
+    )
+
 
 async def reset_db() -> None:
+    await get_pool().execute("DELETE FROM idempotency_keys")
     await get_pool().execute("DELETE FROM trips")
-
-
-async def create_trip(
-    *,
-    user_id: str,
-    traveler_name: str,
-    flight_id: str,
-    hotel_id: str,
-    nights: int,
-) -> dict:
-    trip_id = uuid4()
-    row = await get_pool().fetchrow(
-        """
-        INSERT INTO trips (id, user_id, traveler_name, flight_id, hotel_id, nights, status)
-        VALUES ($1, $2, $3, $4, $5, $6, 'PENDING')
-        RETURNING *
-        """,
-        trip_id,
-        user_id,
-        traveler_name,
-        flight_id,
-        hotel_id,
-        nights,
-    )
-    return dict(row)
 
 
 async def update_trip(trip_id: UUID, **fields: Any) -> dict:
@@ -103,6 +92,19 @@ async def update_trip(trip_id: UUID, **fields: Any) -> dict:
     return dict(row)
 
 
+async def get_idempotency_key(key: str) -> dict | None:
+    row = await get_pool().fetchrow(
+        """
+        SELECT *
+        FROM idempotency_keys
+        WHERE key = $1
+        """,
+        key,
+    )
+
+    return dict(row) if row else None
+
+
 async def get_trip(trip_id: UUID) -> dict | None:
     row = await get_pool().fetchrow("SELECT * FROM trips WHERE id = $1", trip_id)
     return dict(row) if row else None
@@ -112,3 +114,83 @@ async def state() -> dict[str, list[dict]]:
     rows = await get_pool().fetch("SELECT * FROM trips ORDER BY created_at, id")
     return {"trips": [dict(row) for row in rows]}
 
+
+async def update_idempotency_status(
+    *,
+    key: str,
+    status: str,
+) -> None:
+    await get_pool().execute(
+        """
+        UPDATE idempotency_keys
+        SET status = $2,
+            updated_at = now()
+        WHERE key = $1
+        """,
+        key,
+        status,
+    )
+
+
+async def claim_key_and_create_trip(
+    *,
+    key: str,
+    request_hash: str,
+    user_id: str,
+    traveler_name: str,
+    flight_id: str,
+    hotel_id: str,
+    nights: int,
+) -> dict | None:
+    async with get_pool().acquire() as connection:
+        async with connection.transaction():
+            claimed_key = await connection.fetchrow(
+                """
+                INSERT INTO idempotency_keys (key, request_hash, status)
+                VALUES ($1, $2, 'PROCESSING')
+                ON CONFLICT (key) DO NOTHING
+                RETURNING *
+                """,
+                key,
+                request_hash,
+            )
+
+            if claimed_key is None:
+                return None
+
+            trip_id = uuid4()
+
+            trip = await connection.fetchrow(
+                """
+                INSERT INTO trips (
+                    id,
+                    user_id,
+                    traveler_name,
+                    flight_id,
+                    hotel_id,
+                    nights,
+                    status
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, 'PENDING')
+                RETURNING *
+                """,
+                trip_id,
+                user_id,
+                traveler_name,
+                flight_id,
+                hotel_id,
+                nights,
+            )
+
+            await connection.execute(
+                """
+                UPDATE idempotency_keys
+                SET trip_id = $2,
+                    updated_at = now()
+                WHERE key = $1
+                """,
+                key,
+                trip_id,
+            )
+
+            return dict(trip)
